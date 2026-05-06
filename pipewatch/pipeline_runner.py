@@ -88,7 +88,21 @@ class PipelineRunner:
             reports.append(self.observe(metric))
         return reports
 
-    def reset(self) -> None:
-        """Clear accumulated state (useful between test runs)."""
-        self.registry.reset()
-        self._collector = MetricsCollector()
+    def summary(self) -> dict:
+        """Return a high-level summary of all reports processed so far.
+
+        Includes total observations and counts of runs that had at least one
+        alert or anomaly, giving a quick health overview of the pipeline.
+        """
+        all_metrics = self._collector.all()
+        total = len(all_metrics)
+        issues_count = sum(
+            1
+            for m in all_metrics
+            if evaluate_rules(m, self.rules) or self.registry.evaluate(m)
+        )
+        return {
+            "total_observations": total,
+            "observations_with_issues": issues_count,
+            "healthy_ratio": round((total - issues_count) / total, 4) if total else 1.0,
+        }
