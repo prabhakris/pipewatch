@@ -76,3 +76,13 @@ class TestAnomalyDetector:
         d = result.to_dict()
         for key in ("pipeline_name", "metric_name", "value", "mean", "std_dev", "z_score", "is_anomaly", "threshold"):
             assert key in d
+
+    def test_anomaly_result_pipeline_name_matches_metric(self):
+        """Ensure AnomalyResult carries the correct pipeline name from the metric."""
+        detector = AnomalyDetector(min_samples=3)
+        metric = make_metric(pipeline_name="my_pipeline")
+        result = None
+        for _ in range(3):
+            result = detector.detect(metric, "failure_rate")
+        assert result is not None
+        assert result.pipeline_name == "my_pipeline"
