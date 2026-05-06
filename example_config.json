@@ -1,0 +1,60 @@
+{
+  "global_tags": {
+    "env": "production",
+    "region": "us-east-1"
+  },
+  "pipelines": [
+    {
+      "name": "orders_etl",
+      "interval_seconds": 300,
+      "min_samples": 10,
+      "tags": {
+        "team": "data-eng",
+        "source": "postgres"
+      },
+      "alert_rules": [
+        {
+          "metric": "failure_rate",
+          "threshold": 0.05,
+          "severity": "critical",
+          "message": "Failure rate exceeded 5%"
+        },
+        {
+          "metric": "throughput",
+          "threshold": 100,
+          "operator": "less_than",
+          "severity": "warning",
+          "message": "Throughput dropped below 100 records/s"
+        }
+      ],
+      "notifiers": [
+        { "type": "log", "level": "warning" },
+        {
+          "type": "email",
+          "recipients": ["oncall@example.com"],
+          "smtp_host": "smtp.example.com",
+          "smtp_port": 587
+        }
+      ]
+    },
+    {
+      "name": "inventory_sync",
+      "interval_seconds": 3600,
+      "min_samples": 5,
+      "tags": {
+        "team": "ops"
+      },
+      "alert_rules": [
+        {
+          "metric": "failure_rate",
+          "threshold": 0.1,
+          "severity": "warning",
+          "message": "Inventory sync failure rate high"
+        }
+      ],
+      "notifiers": [
+        { "type": "log", "level": "error" }
+      ]
+    }
+  ]
+}
