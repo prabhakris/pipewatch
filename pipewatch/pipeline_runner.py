@@ -78,6 +78,16 @@ class PipelineRunner:
                 except Exception:  # pragma: no cover
                     logger.exception("Notification failed via %s", channel)
 
+    def observe_many(self, metrics: List[PipelineMetric]) -> List[RunReport]:
+        """Process multiple metric snapshots in sequence and return all RunReports.
+
+        Useful for batch ingestion or replaying historical data.
+        """
+        reports = []
+        for metric in metrics:
+            reports.append(self.observe(metric))
+        return reports
+
     def reset(self) -> None:
         """Clear accumulated state (useful between test runs)."""
         self.registry.reset()
