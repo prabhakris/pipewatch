@@ -1,17 +1,14 @@
-"""Produces human-readable summaries from correlation groups."""
+"""Generates human-readable reports from correlated alert groups."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import List
 
 from pipewatch.alert_correlator import AlertCorrelator, CorrelationGroup
-from pipewatch.alerts import Alert
 
 
 @dataclass
 class CorrelationReport:
-    """Summary of correlated alert groups for a single evaluation pass."""
-
     groups: List[CorrelationGroup] = field(default_factory=list)
 
     @property
@@ -20,39 +17,38 @@ class CorrelationReport:
 
     @property
     def hot_pipelines(self) -> List[str]:
-        """Pipeline IDs that appear in more than one group."""
-        from collections import Counter
-        counts = Counter(g.pipeline_id for g in self.groups)
-        return [pid for pid, n in counts.items() if n > 1]
+        """Return pipeline IDs that appear in more than one group."""
+        seen: dict[str, int] = {}
+        for g in self.groups:
+            seen[g.pipeline_id] = seen.get(g.pipeline_id, 0) + g.count
+        return [pid for pid, cnt in seen.items() if cnt > 1]
 
     def to_dict(self) -> dict:
         return {
             "total_alerts": self.total_alerts,
-            "group_count": len(self.groups),
             "hot_pipelines": self.hot_pipelines,
             "groups": [g.to_dict() for g in self.groups],
         }
 
     def render_text(self) -> str:
-        if not self.groups:
-            return "No correlated alert groups."
-        lines = [f"Correlation Report — {len(self.groups)} group(s), {self.total_alerts} alert(s)"]
+        lines = [
+            f"Correlation Report — {len(self.groups)} group(s), {self.total_alerts} alert(s) total",
+            "-" * 60,
+        ]
         for g in self.groups:
+            first = g.first_seen.isoformat() if g.first_seen else "n/a"
+            last = g.last_seen.isoformat() if g.last_seen else "n/a"
             lines.append(
-                f"  [{g.pipeline_id}] {g.rule_name}: {g.count} alert(s) "
-                f"({g.first_seen} → {g.last_seen})"
+                f"[{g.pipeline_id}] rule={g.rule_name}  count={g.count}  "
+                f"first={first}  last={last}"
             )
         if self.hot_pipelines:
-            lines.append(f"  Hot pipelines: {', '.join(self.hot_pipelines)}")
+            lines.append("-" * 60)
+            lines.append("Hot pipelines: " + ", ".join(self.hot_pipelines))
         return "\n".join(lines)
 
 
-def build_correlation_report(
-    alerts: List[Alert],
-    window_seconds: int = 300,
-) -> CorrelationReport:
-    """Correlate a list of alerts and return a CorrelationReport."""
-    correlator = AlertCorrelator(window_seconds=window_seconds)
-    for alert in alerts:
-        correlator.add(alert)
-    return CorrelationReport(groups=correlator.groups())
+def build_report(correlator: AlertCorrelator) -> CorrelationReport:
+    """Snapshot the current state of a correlator into a CorrelationReport."""
+    groups = list(correlator._groups.values())
+    return CorrelationReport(groups=groups)

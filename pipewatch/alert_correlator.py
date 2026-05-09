@@ -1,8 +1,8 @@
-"""Alert correlation — groups related alerts by pipeline and rule proximity."""
+"""Groups related alerts into correlation windows."""
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from pipewatch.alerts import Alert
@@ -10,27 +10,28 @@ from pipewatch.alerts import Alert
 
 @dataclass
 class CorrelationGroup:
-    """A cluster of temporally and logically related alerts."""
-
     pipeline_id: str
     rule_name: str
-    alerts: List[Alert] = field(default_factory=list)
+    _alerts: List[Alert] = field(default_factory=list, repr=False)
+
+    def add(self, alert: Alert) -> None:
+        self._alerts.append(alert)
 
     @property
     def count(self) -> int:
-        return len(self.alerts)
+        return len(self._alerts)
 
     @property
-    def first_seen(self) -> Optional[datetime]:
-        if not self.alerts:
+    def first_seen(self) -> Optional[datetime.datetime]:
+        if not self._alerts:
             return None
-        return min(a.triggered_at for a in self.alerts)
+        return min(a.triggered_at for a in self._alerts)
 
     @property
-    def last_seen(self) -> Optional[datetime]:
-        if not self.alerts:
+    def last_seen(self) -> Optional[datetime.datetime]:
+        if not self._alerts:
             return None
-        return max(a.triggered_at for a in self.alerts)
+        return max(a.triggered_at for a in self._alerts)
 
     def to_dict(self) -> dict:
         return {
@@ -44,35 +45,33 @@ class CorrelationGroup:
 
 @dataclass
 class AlertCorrelator:
-    """Groups incoming alerts into correlation windows."""
+    """Correlates alerts by (pipeline_id, rule_name) within a rolling time window."""
 
-    window_seconds: int = 300  # 5-minute default correlation window
-    _groups: Dict[str, CorrelationGroup] = field(default_factory=dict, init=False)
-
-    def _group_key(self, alert: Alert) -> str:
-        return f"{alert.pipeline_id}::{alert.rule_name}"
-
-    def _is_within_window(self, group: CorrelationGroup, alert: Alert) -> bool:
-        if group.last_seen is None:
-            return True
-        delta = alert.triggered_at - group.last_seen
-        return delta <= timedelta(seconds=self.window_seconds)
+    window_seconds: int = 300
+    _groups: Dict[tuple, CorrelationGroup] = field(default_factory=dict, repr=False)
 
     def add(self, alert: Alert) -> CorrelationGroup:
-        """Add an alert and return its correlation group."""
-        key = self._group_key(alert)
-        group = self._groups.get(key)
-        if group is None or not self._is_within_window(group, alert):
-            group = CorrelationGroup(
+        self._evict(alert.triggered_at)
+        key = (alert.pipeline_id, alert.rule_name)
+        if key not in self._groups:
+            self._groups[key] = CorrelationGroup(
                 pipeline_id=alert.pipeline_id,
                 rule_name=alert.rule_name,
             )
-            self._groups[key] = group
-        group.alerts.append(alert)
-        return group
+        self._groups[key].add(alert)
+        return self._groups[key]
+
+    def _evict(self, now: datetime.datetime) -> None:
+        cutoff = now - datetime.timedelta(seconds=self.window_seconds)
+        stale = [
+            k
+            for k, g in self._groups.items()
+            if g.last_seen is not None and g.last_seen < cutoff
+        ]
+        for k in stale:
+            del self._groups[k]
 
     def groups(self) -> List[CorrelationGroup]:
-        """Return all current correlation groups."""
         return list(self._groups.values())
 
     def reset(self) -> None:
